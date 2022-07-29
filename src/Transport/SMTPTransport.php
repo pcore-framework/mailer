@@ -44,16 +44,17 @@ class SMTPTransport implements TransportInterface
      */
     private array $allowedEncryptions = ['ssl', 'tls'];
 
-    public function __construct()
+    public function __construct(array $config = [])
     {
-        $this->transport = [
+        $this->transport = array_merge([
             'host' => 'localhost',
             'username' => '',
             'password' => '',
             'port' => 25,
             'encryption' => '',
+            'starttls' => false,
             'context' => []
-        ];
+        ], $config);
         if (false === in_array($this->transport['encryption'], $this->allowedEncryptions)) {
             $this->transport['encryption'] = '';
         }
@@ -76,6 +77,7 @@ class SMTPTransport implements TransportInterface
             $this->serverParse($socket, '220');
             $this->socketSend($socket, 'EHLO ' . $this->transport['host'] . $eof);
             $this->serverParse($socket, '250');
+            $this->startTls($socket);
             $this->auth($socket);
             $this->socketSend($socket, "MAIL FROM:<{$from}>" . $eof);
             $this->serverParse($socket, '250');
@@ -168,6 +170,23 @@ class SMTPTransport implements TransportInterface
     {
         $this->logText .= date('Y-m-d h:i:s') . ' CLIENT -> SERVER: ' . $message;
         fwrite($socket, $message);
+    }
+
+    /**
+     * @param $socket
+     */
+    private function startTls($socket)
+    {
+        $eof = Constant::EOF;
+        if (($this->transport['encryption'] === 'tls') && $this->transport['starttls']) {
+            $this->socketSend($socket, 'STARTTLS' . $eof);
+            $this->serverParse($socket, '220');
+            if (false === stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                throw new Exception('Не удалось запустить tls-шифрование', 500);
+            }
+            $this->socketSend($socket, 'EHLO ' . $this->transport['host'] . $eof);
+            $this->serverParse($socket, '250');
+        }
     }
 
     /**

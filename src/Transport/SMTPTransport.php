@@ -31,6 +31,13 @@ class SMTPTransport implements TransportInterface
     public bool|int $debugMode = false;
 
     /**
+     * Текст журнала отладки
+     *
+     * @var ?string
+     */
+    private ?string $logText;
+
+    /**
      * Разрешенные шифрования
      *
      * @var array
@@ -62,6 +69,7 @@ class SMTPTransport implements TransportInterface
     public function send(string $from, mixed $to, string $message, $headers = null): bool
     {
         $eof = Constant::EOF;
+        $this->logText = null;
         $socket = null;
         try {
             $socket = $this->connect();
@@ -145,6 +153,7 @@ class SMTPTransport implements TransportInterface
             if (!($serverResponse = fgets($socket, 256))) {
                 throw new Exception('Ошибка при получении кодов ответов сервера.' . __FILE__ . __LINE__, 500);
             }
+            $this->logText .= date('Y-m-d h:i:s') . ' SERVER -> CLIENT: ' . trim($serverResponse) . "\n";
         }
         if (!(substr($serverResponse, 0, 3) == $expectedResponse)) {
             throw new Exception("Не удалось отправить электронное письмо.{$serverResponse}" . __FILE__ . __LINE__, 500);
@@ -157,6 +166,7 @@ class SMTPTransport implements TransportInterface
      */
     protected function socketSend($socket, $message)
     {
+        $this->logText .= date('Y-m-d h:i:s') . ' CLIENT -> SERVER: ' . $message;
         fwrite($socket, $message);
     }
 

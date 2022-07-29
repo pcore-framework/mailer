@@ -64,6 +64,11 @@ class Mailer
     protected string $html;
 
     /**
+     * @var array
+     */
+    protected array $attachments;
+
+    /**
      * @var string
      */
     protected string $priority;
@@ -109,6 +114,7 @@ class Mailer
         $this->subject = '';
         $this->text = '';
         $this->html = '';
+        $this->attachments = [];
         $this->priority = '';
         $this->customHeaders = [];
         $this->logText = '';
@@ -280,12 +286,33 @@ class Mailer
     }
 
     /**
+     * @param $attachment
+     * @param string $inlineFileName
+     * @return $this
+     */
+    public function attach($attachment, $inlineFileName = ''): Mailer
+    {
+        $basename = $inlineFileName ?: basename($attachment);
+        $this->attachments[$basename] = $attachment;
+        $this->contentIds[$basename] = $this->genCid($basename);
+        return $this;
+    }
+
+    /**
      * @param $name
      * @return string
      */
-    private function genCid($name):string
+    private function genCid($name): string
     {
         return md5($name);
+    }
+
+    /**
+     * @return array
+     */
+    public function getAttachments(): array
+    {
+        return $this->attachments;
     }
 
     /**
@@ -376,6 +403,8 @@ class Mailer
         }
         $subjectHeader = 'Subject: ' . $subject . $eol;
         $message = '';
+        $type = ($this->html && $this->text) ? 'alt' : 'plain';
+        $type .= count((array)$this->attachments) ? '_attachments' : '';
         $headers .= 'MIME-Version: 1.0' . $eol;
         $from = $this->formatEmail($this->fromEmail, $this->fromName);
         $headers .= 'From: ' . $from . $eol;
@@ -397,6 +426,58 @@ class Mailer
                 $headers .= $k . ': ' . $v . $eol;
             }
         }
+        $boundary = match ($type) {
+            'alt', 'plain_attachments', 'alt_attachments' => $this->genBoundaryId(),
+        };
+        $headers .= match ($type) {
+            'plain' => 'Content-Type: ' . ($this->html ? 'text/html' : 'text/plain') . '; charset="UTF-8"',
+            'alt' => 'Content-Type: multipart/alternative; format=flowed; delsp=yes; boundary="' . $boundary . '"',
+            'plain_attachments', 'alt_attachments' => 'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
+        };
+        switch ($type) {
+            case 'plain':
+                $message .= $this->html ?: $this->text;
+                break;
+            case 'alt':
+                $message .= '--' . $boundary . $eol;
+                $message .= $this->genEncodeTextPart($this->text);
+                $message .= $eol . '--' . $boundary . $eol;
+                $message .= $this->genEncodeHtmlPart($this->html);
+                break;
+
+            case 'plain_attachments':
+                $message .= '--' . $boundary . $eol;
+                if ($this->text) {
+                    $message .= $this->genEncodeTextPart($this->text);
+                } else {
+                    $message .= $this->genEncodeHtmlPart($this->embedAttachments($this->html));
+                }
+                break;
+            case 'alt_attachments':
+                $boundary2 = 'bd2_' . $boundary;
+                $message .= '--' . $boundary . $eol;
+                $message .= 'Content-Type: multipart/alternative; boundary="' . $boundary2 . '"' . $eol . $eol;
+                $message .= '--' . $boundary2 . $eol;
+                $message .= $this->genEncodeTextPart($this->text);
+                $message .= $eol . '--' . $boundary2 . $eol;
+                $message .= $this->genEncodeHtmlPart($this->embedAttachments($this->html));
+                $message .= $eol . '--' . $boundary2 . '--';
+                break;
+        }
+        switch ($type) {
+            case 'plain_attachments':
+            case 'alt_attachments':
+                foreach ($this->attachments as $basename => $fullname) {
+                    $content = file_get_contents($fullname);
+                    $message .= $eol . '--' . $boundary . $eol;
+                    $message .= $this->genAttachHeaderPart($this->contentIds[$basename], $basename);
+                    $message .= chunk_split(base64_encode($content), 76, $eol);
+                }
+                break;
+        }
+        $message .= match ($type) {
+            'alt', 'plain_attachments', 'alt_attachments' => $eol . '--' . $boundary . '--',
+        };
         $headers = $toHeader . $subjectHeader . $headers;
         return compact('from', 'to', 'headers', 'message');
     }
@@ -425,6 +506,70 @@ class Mailer
     private function hasNotUnicode($str): bool|int
     {
         return preg_match('/^[a-zA-Z0-9\-\. ]+$/', $str);
+    }
+
+    /**
+     * @return string
+     */
+    protected function genBoundaryId(): string
+    {
+        return md5(uniqid(time(), true));
+    }
+
+    /**
+     * @param $text
+     * @return string
+     */
+    private function genEncodeTextPart($text): string
+    {
+        $eol = Constant::EOF;
+        $message = 'Content-Type: text/plain; charset="UTF-8"' . $eol;
+        $message .= 'Content-Transfer-Encoding: base64' . $eol . $eol;
+        $message .= chunk_split(base64_encode($text), 76, $eol);
+        return $message;
+    }
+
+    /**
+     * @param $html
+     * @return string
+     */
+    private function genEncodeHtmlPart($html): string
+    {
+        $eol = Constant::EOF;
+        $message = 'Content-Type: text/html; charset="UTF-8"' . $eol;
+        $message .= 'Content-Transfer-Encoding: base64' . $eol . $eol;
+        $message .= chunk_split(base64_encode($html), 76, $eol);
+        return $message;
+    }
+
+    /**
+     * @param $html
+     * @return string
+     */
+    private function embedAttachments($html): string
+    {
+        $patterns = [];
+        $replacements = [];
+        foreach ($this->contentIds as $basename => $id) {
+            $patterns[] = '/' . preg_quote($basename) . '/ui';
+            $replacements[] = 'cid:' . $id;
+        }
+        return preg_replace($patterns, $replacements, $html);
+    }
+
+    /**
+     * @param $cid
+     * @param $basename
+     * @return string
+     */
+    private function genAttachHeaderPart($cid, $basename): string
+    {
+        $eol = Constant::EOF;
+        $message = 'Content-Type: application/octetstream' . $eol;
+        $message .= 'Content-Transfer-Encoding: base64' . $eol;
+        $message .= 'Content-Disposition: attachment; filename="' . $basename . '"' . $eol;
+        $message .= 'Content-ID: <' . $cid . '>' . $eol . $eol;
+        return $message;
     }
 
     /**

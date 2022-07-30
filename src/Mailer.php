@@ -84,19 +84,19 @@ class Mailer
     protected TransportInterface $transport;
 
     /**
-     * @var string
+     * @var bool|string
      */
-    protected string $messageId;
+    protected bool|string $messageId = false;
 
     /**
-     * @var string
+     * @var bool|string
      */
-    protected string $xMailer;
+    protected bool|string $xMailer = false;
 
     /**
-     * @var DateTimeImmutable
+     * @var bool|DateTimeImmutable
      */
-    protected DateTimeImmutable $date;
+    protected bool|DateTimeImmutable $date = false;
 
     /**
      * @var array
@@ -428,10 +428,12 @@ class Mailer
         }
         $boundary = match ($type) {
             'alt', 'plain_attachments', 'alt_attachments' => $this->genBoundaryId(),
+            default => '',
         };
         $headers .= match ($type) {
             'plain' => 'Content-Type: ' . ($this->html ? 'text/html' : 'text/plain') . '; charset="UTF-8"',
-            'alt' => 'Content-Type: multipart/alternative; format=flowed; delsp=yes; boundary="' . $boundary . '"',
+            'alt' => 'Content-Type: multipart/alternative; format=flowed; delsp=yes; boundary="' .
+                $boundary . '"',
             'plain_attachments', 'alt_attachments' => 'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
         };
         switch ($type) {
@@ -475,9 +477,13 @@ class Mailer
                 }
                 break;
         }
-        $message .= match ($type) {
-            'alt', 'plain_attachments', 'alt_attachments' => $eol . '--' . $boundary . '--',
-        };
+        switch ($type) {
+            case 'alt':
+            case 'plain_attachments':
+            case 'alt_attachments':
+                $message .= $eol . '--' . $boundary . '--';
+                break;
+        }
         $headers = $toHeader . $subjectHeader . $headers;
         return compact('from', 'to', 'headers', 'message');
     }

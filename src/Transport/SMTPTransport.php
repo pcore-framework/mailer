@@ -53,6 +53,7 @@ class SMTPTransport implements TransportInterface
             'port' => 25,
             'encryption' => '',
             'starttls' => false,
+            'httpProxy' => '',
             'context' => []
         ], $config);
         if (false === in_array($this->transport['encryption'], $this->allowedEncryptions)) {
@@ -123,6 +124,31 @@ class SMTPTransport implements TransportInterface
         return $this->connectDirectly();
     }
 
+    private function connectHttpProxy()
+    {
+        $host = parse_url($this->transport['httpProxy'], PHP_URL_HOST);
+        $port = parse_url($this->transport['httpProxy'], PHP_URL_PORT);
+        $user = parse_url($this->transport['httpProxy'], PHP_URL_USER);
+        $pass = parse_url($this->transport['httpProxy'], PHP_URL_PASS);
+        $creds = '';
+        if (($user !== false) && ($pass !== false)) {
+            $creds = $user . ':' . $pass;
+        }
+        $destination = $this->transport['host'] . ':' . $this->transport['port'];
+        $socket = stream_socket_client('tcp://' . $host . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+        if ($errno == 0) {
+            $auth = $creds ? 'Proxy-Authorization: Basic ' . base64_encode($creds) . "\r\n" : '';
+            $connect = "CONNECT $destination HTTP/1.1\r\n$auth\r\n";
+            fwrite($socket, $connect);
+            $rsp = fread($socket, 1024);
+            if (preg_match('/^HTTP\/\d\.\d 200/', $rsp) == 1) {
+                return $socket;
+            }
+            throw new Exception("Запрос отклонен, $rsp\n");
+        }
+        throw new Exception('Подключиться прокси-сервер ' . $host . ':' . $port . ' не удалось: ' . $errno . ' ' . $errstr);
+    }
+    
     /**
      * @return resource
      */

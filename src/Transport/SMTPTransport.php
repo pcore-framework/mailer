@@ -113,6 +113,9 @@ class SMTPTransport implements TransportInterface
     protected function connect()
     {
         $socket = null;
+        if (isset($this->transport['httpProxy']) === true && ($this->transport['httpProxy']) !== '') {
+            $socket = $this->connectHttpProxy();
+        }
         if (($socket !== null) && $this->transport['encryption'] && !$this->transport['starttls']) {
             if (stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_ANY_CLIENT) === false) {
                 throw new Exception('Невозможно ' . $this->transport['encryption'] . ' шифрование', 500);
@@ -124,6 +127,9 @@ class SMTPTransport implements TransportInterface
         return $this->connectDirectly();
     }
 
+    /**
+     * @return false|resource
+     */
     private function connectHttpProxy()
     {
         $host = parse_url($this->transport['httpProxy'], PHP_URL_HOST);
@@ -135,7 +141,17 @@ class SMTPTransport implements TransportInterface
             $creds = $user . ':' . $pass;
         }
         $destination = $this->transport['host'] . ':' . $this->transport['port'];
-        $socket = stream_socket_client('tcp://' . $host . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+        $sslContext = [];
+        if ($this->transport['encryption']) {
+            $sslContext = array_merge(
+                [
+                    'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]
+                ],
+                $this->transport['context']
+            );
+        }
+        $context = stream_context_create($sslContext);
+        $socket = stream_socket_client('tcp://' . $host . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT, $context);
         if ($errno == 0) {
             $auth = $creds ? 'Proxy-Authorization: Basic ' . base64_encode($creds) . "\r\n" : '';
             $connect = "CONNECT $destination HTTP/1.1\r\n$auth\r\n";
@@ -148,7 +164,7 @@ class SMTPTransport implements TransportInterface
         }
         throw new Exception('Подключиться прокси-сервер ' . $host . ':' . $port . ' не удалось: ' . $errno . ' ' . $errstr);
     }
-    
+
     /**
      * @return resource
      */

@@ -8,14 +8,17 @@ composer require pcore/mailer
 
 ```php
 use PCore\Mailer\Transport\SMTPTransport;
-use PCore\Mailer\Transport\Mailer;
+use PCore\Mailer\Mailer;
 
 $mailer = new Mailer(new SMTPTransport([
     'host' => 'localhost',
     'port' => 465,
     'encryption' => 'ssl',
     'username' => '',
-    'password' => ''
+    'password' => '',
+
+    // Использование HTTP-прокси 
+    'httpProxy' => 'http://example.com'
 ]));
 
 $mailer->setFrom('from@example.com')

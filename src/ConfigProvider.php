@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace PCore\View;
+namespace PCore\Mailer;
 
 /**
  * Class ConfigProvider
- * @package PCore\View
+ * @package PCore\Mailer
  * @github https://github.com/pcore-framework/mailer
  */
 class ConfigProvider
@@ -17,7 +17,7 @@ class ConfigProvider
         return [
             'publish' => [
                 [
-                    'name' => 'view',
+                    'name' => 'mailer',
                     'source' => __DIR__ . '/../publish/mailer.php',
                     'destination' => dirname(__DIR__, 4) . '/config/mailer.php'
                 ]

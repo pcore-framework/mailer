@@ -24,10 +24,5 @@
         "psr-4": {
             "PCore\\Mailer\\": "src/"
         }
-    },
-    "extra": {
-        "pcore": {
-            "config": "PCore\\Mailer\\ConfigProvider"
-        }
     }
 }
